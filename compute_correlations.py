@@ -2,7 +2,7 @@
 compute_correlations.py
 
 Downloads S&P 500 stock prices and computes a correlation-based edge list.
-Edges represent pairs of companies with Pearson correlation >= 0.6.
+Keeps only the top N% strongest correlations to create a sparse backbone network.
 
 Output: sp500_edges.csv with columns (Source, Target, Weight)
 """
@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 NODES_FILE = "sp500_nodes.csv"
 OUTPUT_FILE = "sp500_edges.csv"
-CORRELATION_THRESHOLD = 0.7
+TOP_PERCENT = 6  # Keep only the top 6% strongest correlations
 LOOKBACK_DAYS = 365  # 1 year of data
 
 # =============================================================================
@@ -100,17 +100,16 @@ correlation_matrix = prices_df.corr(method='pearson')
 print(f"  Correlation matrix shape: {correlation_matrix.shape}")
 
 # =============================================================================
-# Step 5: Create edge list with correlation >= threshold
+# Step 5: Extract all pairwise correlations and keep top N%
 # =============================================================================
 
-print(f"\nStep 5: Creating edge list (threshold >= {CORRELATION_THRESHOLD})...")
-
-edges = []
+print(f"\nStep 5: Extracting top {TOP_PERCENT}% strongest correlations...")
 
 # Get list of symbols in the correlation matrix
 corr_symbols = correlation_matrix.columns.tolist()
 
-# Iterate over upper triangle only (undirected graph, no duplicates)
+# Collect all pairwise correlations (upper triangle only)
+all_pairs = []
 for i in range(len(corr_symbols)):
     for j in range(i + 1, len(corr_symbols)):  # j > i ensures no self-loops and no duplicates
         symbol_a = corr_symbols[i]
@@ -121,26 +120,54 @@ for i in range(len(corr_symbols)):
         if pd.isna(correlation):
             continue
 
-        # Only include edges above threshold
-        if correlation >= CORRELATION_THRESHOLD:
-            # Convert back to original symbol names (e.g., BRK-B -> BRK.B)
-            orig_a = yf_to_original.get(symbol_a, symbol_a)
-            orig_b = yf_to_original.get(symbol_b, symbol_b)
-            # Alphabetical order for consistency
-            source, target = sorted([orig_a, orig_b])
-            edges.append({
-                'Source': source,
-                'Target': target,
-                'Weight': round(correlation, 6)
-            })
+        all_pairs.append({
+            'symbol_a': symbol_a,
+            'symbol_b': symbol_b,
+            'correlation': correlation,
+            'abs_correlation': abs(correlation)
+        })
 
-print(f"  Found {len(edges)} edges with correlation >= {CORRELATION_THRESHOLD}")
+total_pairs = len(all_pairs)
+print(f"  Total valid pairs: {total_pairs}")
+
+# Sort by absolute correlation (strongest first)
+all_pairs.sort(key=lambda x: x['abs_correlation'], reverse=True)
+
+# Keep only top N%
+num_edges_to_keep = int(total_pairs * TOP_PERCENT / 100)
+top_pairs = all_pairs[:num_edges_to_keep]
+
+print(f"  Keeping top {TOP_PERCENT}%: {num_edges_to_keep} edges")
+
+if top_pairs:
+    min_corr = top_pairs[-1]['abs_correlation']
+    max_corr = top_pairs[0]['abs_correlation']
+    print(f"  Correlation range in top {TOP_PERCENT}%: {min_corr:.4f} to {max_corr:.4f}")
 
 # =============================================================================
-# Step 6: Save edge list to CSV
+# Step 6: Create edge list from top pairs
 # =============================================================================
 
-print(f"\nStep 6: Saving edge list to {OUTPUT_FILE}...")
+print("\nStep 6: Creating edge list...")
+
+edges = []
+for pair in top_pairs:
+    # Convert back to original symbol names (e.g., BRK-B -> BRK.B)
+    orig_a = yf_to_original.get(pair['symbol_a'], pair['symbol_a'])
+    orig_b = yf_to_original.get(pair['symbol_b'], pair['symbol_b'])
+    # Alphabetical order for consistency
+    source, target = sorted([orig_a, orig_b])
+    edges.append({
+        'Source': source,
+        'Target': target,
+        'Weight': round(pair['correlation'], 6)
+    })
+
+# =============================================================================
+# Step 7: Save edge list to CSV
+# =============================================================================
+
+print(f"\nStep 7: Saving edge list to {OUTPUT_FILE}...")
 
 edges_df = pd.DataFrame(edges)
 if not edges_df.empty:
@@ -148,7 +175,7 @@ if not edges_df.empty:
 edges_df.to_csv(OUTPUT_FILE, index=False)
 
 if edges_df.empty:
-    print("  Warning: No edges found above threshold. Output file will be empty.")
+    print("  Warning: No edges found. Output file will be empty.")
 else:
     print(f"  Saved {len(edges_df)} edges to {OUTPUT_FILE}")
 
@@ -162,7 +189,11 @@ print("="*50)
 print(f"  Input symbols:     {len(original_symbols)}")
 print(f"  Symbols with data: {len(prices_df.columns)}")
 print(f"  Trading days:      {len(prices_df)}")
-print(f"  Correlation threshold: {CORRELATION_THRESHOLD}")
+print(f"  Total pairs:       {total_pairs}")
+print(f"  Top percent kept:  {TOP_PERCENT}%")
 print(f"  Edges created:     {len(edges_df)}")
+if top_pairs:
+    print(f"  Min correlation:   {min_corr:.4f}")
+    print(f"  Max correlation:   {max_corr:.4f}")
 print(f"  Output file:       {OUTPUT_FILE}")
 print("="*50)
