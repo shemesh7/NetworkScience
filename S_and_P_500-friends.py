@@ -2,7 +2,6 @@ import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
-import random
 
 def load_and_build_graph(nodes_path, edges_path):
     # Load nodes data
@@ -17,17 +16,14 @@ def load_and_build_graph(nodes_path, edges_path):
                    sector=row['Sector'], 
                    market_cap=row['Market Cap']) # Matches your CSV column name
     
-    # Load or generate edges
-    # Note: If your edges file contains Source/Target pairs, use those columns here.
-    # Currently creating links between companies in the same sector for demonstration.
-    sectors = nodes_df['Sector'].unique()
-    for sector in sectors:
-        sector_nodes = nodes_df[nodes_df['Sector'] == sector]['Symbol'].tolist()
-        for i in range(len(sector_nodes)):
-            for j in range(i + 1, len(sector_nodes)):
-                # Link creation with probability to avoid an overly dense graph
-                if random.random() < 0.1: 
-                    G.add_edge(sector_nodes[i], sector_nodes[j])
+    # Load edges from correlation-based edge list
+    # Each edge has Source, Target, Weight (Pearson correlation >= 0.6)
+    edges_df = pd.read_csv(edges_path)
+
+    for _, row in edges_df.iterrows():
+        # Only add edge if both nodes exist in the graph
+        if row['Source'] in G.nodes and row['Target'] in G.nodes:
+            G.add_edge(row['Source'], row['Target'], weight=row['Weight'])
             
     return G
 
@@ -35,37 +31,63 @@ def load_and_build_graph(nodes_path, edges_path):
 
 def calculate_basic_metrics(G):
     print("--- 2. Basic Properties ---")
-    # 1. Average degree: How many partners does an average company have? [cite: 159]
+
+    # 1a. Average degree (UNWEIGHTED): How many partners does an average company have?
     avg_degree = sum(dict(G.degree()).values()) / G.number_of_nodes()
-    print(f"1. Average Degree: {avg_degree:.2f}")
-    
-    # 2. Diameter: Distance between the two furthest companies [cite: 160]
-    # Calculated on the Giant Connected Component (GCC)
+    print(f"1a. Average Degree [unweighted]: {avg_degree:.2f}")
+
+    # 1b. Average weighted degree (STRENGTH): Sum of correlation weights per node
+    # Strength = sum of edge weights for each node
+    strengths = [s for n, s in G.degree(weight='weight')]
+    avg_strength = sum(strengths) / G.number_of_nodes()
+    print(f"1b. Average Strength [weighted degree]: {avg_strength:.4f}")
+
+    # 2. Diameter (UNWEIGHTED): Distance in hops between furthest companies
+    # Note: Using hop count, not weighted distance
     gcc_nodes = max(nx.connected_components(G), key=len)
     gcc = G.subgraph(gcc_nodes)
     diameter = nx.diameter(gcc)
-    print(f"2. Diameter (GCC): {diameter}")
-    
-    # 3. Clustering Coefficient: Measures "communities" [cite: 161]
+    print(f"2. Diameter (GCC) [unweighted hops]: {diameter}")
+
+    # 3a. Clustering Coefficient (UNWEIGHTED): Measures "communities"
     avg_clustering = nx.average_clustering(G)
-    print(f"3. Average Clustering Coefficient: {avg_clustering:.4f}")
-    
-    # 4. Small World Phenomenon [cite: 162]
+    print(f"3a. Average Clustering Coefficient [unweighted]: {avg_clustering:.4f}")
+
+    # 3b. Clustering Coefficient (WEIGHTED): Considers correlation strength in triangles
+    avg_clustering_weighted = nx.average_clustering(G, weight='weight')
+    print(f"3b. Average Clustering Coefficient [weighted]: {avg_clustering_weighted:.4f}")
+
+    # 4. Small World Phenomenon (UNWEIGHTED): Average hops between nodes
+    # Note: Using hop count, not weighted distance
     avg_path = nx.average_shortest_path_length(gcc)
-    print(f"4. Average Path Length (Small World): {avg_path:.2f}")
+    print(f"4. Average Path Length [unweighted hops]: {avg_path:.2f}")
 
 def calculate_deep_metrics(G):
     print("\n--- 3. Deep Properties ---")
-    
-    # 1+2. Degree Distribution P(k) and Power Law [cite: 164, 165]
+
+    # 1. Degree and Strength Distributions
+    # Plot both unweighted degree and weighted degree (strength) distributions
+
     degrees = [d for n, d in G.degree()]
-    plt.figure(figsize=(8, 5))
-    plt.hist(degrees, bins=30, alpha=0.7, color='blue', density=True)
-    plt.title("Degree Distribution P(k)")
-    plt.xlabel("k (Degree)")
-    plt.ylabel("P(k)")
-    plt.savefig('degree_distribution.png')
-    print("1-2. Degree distribution plot saved as 'degree_distribution.png'")
+    strengths = [s for n, s in G.degree(weight='weight')]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Left: Unweighted degree distribution
+    axes[0].hist(degrees, bins=30, alpha=0.7, color='blue', density=True)
+    axes[0].set_title("Degree Distribution P(k) [unweighted]")
+    axes[0].set_xlabel("k (Degree)")
+    axes[0].set_ylabel("P(k)")
+
+    # Right: Weighted degree (strength) distribution
+    axes[1].hist(strengths, bins=30, alpha=0.7, color='green', density=True)
+    axes[1].set_title("Strength Distribution P(s) [weighted]")
+    axes[1].set_xlabel("s (Strength = sum of correlation weights)")
+    axes[1].set_ylabel("P(s)")
+
+    plt.tight_layout()
+    plt.savefig('degree_strength_distribution.png')
+    print("1. Degree and strength distributions saved as 'degree_strength_distribution.png'")
     
     
 
@@ -93,6 +115,23 @@ def calculate_deep_metrics(G):
 
 # Execution
 G = load_and_build_graph('sp500_nodes.csv', 'sp500_edges.csv')
+
+# --- 1. Graph Summary ---
+print("--- 1. Graph Summary ---")
+print(f"Nodes: {G.number_of_nodes()}")
+print(f"Edges: {G.number_of_edges()}")
+connected_components = list(nx.connected_components(G))
+print(f"Connected Components: {len(connected_components)}")
+gcc_size = len(max(connected_components, key=len))
+print(f"Giant Connected Component (GCC) size: {gcc_size}")
+
+# Robustness warnings
+if G.number_of_edges() == 0:
+    print("WARNING: Graph has no edges. Metrics may be undefined or misleading.")
+if gcc_size < 10:
+    print("WARNING: GCC is very small. Diameter and path length metrics may not be meaningful.")
+print()
+
 calculate_basic_metrics(G)
 calculate_deep_metrics(G)
 
