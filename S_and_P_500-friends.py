@@ -136,5 +136,15 @@ calculate_basic_metrics(G)
 calculate_deep_metrics(G)
 
 # Export to Gephi
+print("\n--- 4. Export to Gephi ---")
+
+# Validate sector attributes before export
+nodes_with_sector = sum(1 for n in G.nodes() if 'sector' in G.nodes[n])
+sectors = set(G.nodes[n].get('sector') for n in G.nodes() if 'sector' in G.nodes[n])
+print(f"Nodes with 'sector' attribute: {nodes_with_sector}/{G.number_of_nodes()}")
+print(f"Unique sectors: {len(sectors)}")
+print(f"Sectors: {sorted(sectors)}")
+
 nx.write_gexf(G, "sp500_project.gexf")
 print("\nFile 'sp500_project.gexf' is ready for Gephi.")
+print("Tip: In Gephi, use Appearance > Nodes > Partition > sector to color by sector.")
