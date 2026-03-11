@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 NODES_FILE = "sp500_nodes.csv"
 OUTPUT_FILE = "sp500_edges.csv"
-TOP_PERCENT = 5  # Keep only the top 6% strongest correlations
+TOP_PERCENT = 5  # Keep only the top 5% strongest positive correlations
 LOOKBACK_DAYS = 365  # 1 year of data
 
 # =============================================================================
@@ -103,12 +103,12 @@ print(f"  Correlation matrix shape: {correlation_matrix.shape}")
 # Step 5: Extract all pairwise correlations and keep top N%
 # =============================================================================
 
-print(f"\nStep 5: Extracting top {TOP_PERCENT}% strongest correlations...")
+print(f"\nStep 5: Extracting top {TOP_PERCENT}% strongest positive correlations...")
 
 # Get list of symbols in the correlation matrix
 corr_symbols = correlation_matrix.columns.tolist()
 
-# Collect all pairwise correlations (upper triangle only)
+# Collect all pairwise POSITIVE correlations (upper triangle only)
 all_pairs = []
 for i in range(len(corr_symbols)):
     for j in range(i + 1, len(corr_symbols)):  # j > i ensures no self-loops and no duplicates
@@ -116,32 +116,31 @@ for i in range(len(corr_symbols)):
         symbol_b = corr_symbols[j]
         correlation = correlation_matrix.iloc[i, j]
 
-        # Skip NaN correlations
-        if pd.isna(correlation):
+        # Skip NaN correlations and non-positive correlations
+        if pd.isna(correlation) or correlation <= 0:
             continue
 
         all_pairs.append({
             'symbol_a': symbol_a,
             'symbol_b': symbol_b,
             'correlation': correlation,
-            'abs_correlation': abs(correlation)
         })
 
-total_pairs = len(all_pairs)
-print(f"  Total valid pairs: {total_pairs}")
+total_positive_pairs = len(all_pairs)
+print(f"  Total positive correlations considered: {total_positive_pairs}")
 
-# Sort by absolute correlation (strongest first)
-all_pairs.sort(key=lambda x: x['abs_correlation'], reverse=True)
+# Sort by correlation value (strongest positive first)
+all_pairs.sort(key=lambda x: x['correlation'], reverse=True)
 
-# Keep only top N%
-num_edges_to_keep = int(total_pairs * TOP_PERCENT / 100)
+# Keep only top N% of positive correlations
+num_edges_to_keep = int(total_positive_pairs * TOP_PERCENT / 100)
 top_pairs = all_pairs[:num_edges_to_keep]
 
-print(f"  Keeping top {TOP_PERCENT}%: {num_edges_to_keep} edges")
+print(f"  Edges kept after {TOP_PERCENT}% filter: {num_edges_to_keep}")
 
 if top_pairs:
-    min_corr = top_pairs[-1]['abs_correlation']
-    max_corr = top_pairs[0]['abs_correlation']
+    min_corr = top_pairs[-1]['correlation']
+    max_corr = top_pairs[0]['correlation']
     print(f"  Correlation range in top {TOP_PERCENT}%: {min_corr:.4f} to {max_corr:.4f}")
 
 # =============================================================================
@@ -189,7 +188,7 @@ print("="*50)
 print(f"  Input symbols:     {len(original_symbols)}")
 print(f"  Symbols with data: {len(prices_df.columns)}")
 print(f"  Trading days:      {len(prices_df)}")
-print(f"  Total pairs:       {total_pairs}")
+print(f"  Positive pairs:    {total_positive_pairs}")
 print(f"  Top percent kept:  {TOP_PERCENT}%")
 print(f"  Edges created:     {len(edges_df)}")
 if top_pairs:
