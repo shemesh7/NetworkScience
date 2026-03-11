@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 NODES_FILE = "sp500_nodes.csv"
 OUTPUT_FILE = "sp500_edges.csv"
-TOP_PERCENT = 6  # Keep only the top 6% strongest correlations
+TOP_PERCENT = 5  # Keep only the top 6% strongest correlations
 LOOKBACK_DAYS = 365  # 1 year of data
 
 # =============================================================================
